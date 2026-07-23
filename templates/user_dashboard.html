@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Caging — Dashboard</title>
+<link rel="stylesheet" href="static/user_dashboard.css">
+</head>
+<body>
+<div class="app-container" id="appContainer">
+  <!-- Header -->
+  <div class="header" id="header">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main-content">
+    <div class="chat-panel" id="chatPanel">
+      <div class="chat-header">
+        <h2>🤖 AI</h2>
+        <button class="chat-toggle-btn" id="chatToggleBtn" title="Toggle Chat">◀</button>
+      </div>
+      <div class="chat-messages" id="chatMessages"></div>
+      <div class="chat-input-area">
+        <div class="chat-input-row">
+          <textarea id="chatInput" rows="1" placeholder="Type ?help for commands..."></textarea>
+          <button id="chatSend">Send</button>
+        </div>
+        <div class="chat-hints">?risk · ?detail · >approve · >reject · ?help</div>
+      </div>
+    </div>
+    <div class="right-panel">
+      <div class="statusbar"></div>
+      <div class="request-panel" id="requestPanel">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="static/common.js"></script>
+<script src="static/chat.js"></script>
+<script src="static/user_dashboard.js"></script>
+</body>
+</html>

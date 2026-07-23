@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Caging Portal</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+  body { display: flex; flex-direction: column; }
+
+  .header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    color: #fff;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    z-index: 100;
+    flex-shrink: 0;
+  }
+  .header h1 { font-size: 20px; font-weight: 600; letter-spacing: 1px; }
+  .header .subtitle { font-size: 13px; opacity: 0.7; }
+  .header .nav-links { display: flex; gap: 12px; }
+  .header .nav-links a {
+    color: #a0c4ff;
+    text-decoration: none;
+    font-size: 14px;
+    padding: 4px 12px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+  }
+  .header .nav-links a:hover {
+    border-color: #a0c4ff;
+    background: rgba(160,196,255,0.1);
+  }
+
+  .main-container {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  .panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panel + .panel { border-left: 2px solid #2a2a4a; }
+
+  .panel-label {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .panel-label .badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.admin { background: #e74c3c; color: #fff; }
+  .badge.root  { background: #2ecc71; color: #fff; }
+
+  .panel iframe {
+    flex: 1;
+    width: 100%;
+    border: none;
+    background: #fff;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>⚙ Caging Portal</h1>
+    <div class="subtitle">Isolated Environment Manager</div>
+  </div>
+  <div class="nav-links">
+    <a href="/cadmin" target="_blank">🔐 Admin (new tab)</a>
+    <a href="/root" target="_blank">🔓 Root (new tab)</a>
+  </div>
+</div>
+
+<div class="main-container">
+  <div class="panel">
+    <div class="panel-label">
+      <span class="badge admin">Admin</span>
+      <span>localhost:58001 → /cadmin</span>
+    </div>
+    <iframe src="/cadmin/ui/login" title="Admin Panel"></iframe>
+  </div>
+  <div class="panel">
+    <div class="panel-label">
+      <span class="badge root">Root</span>
+      <span>localhost:58000 → /root</span>
+    </div>
+    <iframe src="/root/ui/login" title="Root Panel"></iframe>
+  </div>
+</div>
+
+</body>
+</html>

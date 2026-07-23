@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Caging — Login</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .login-card {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px;
+    padding: 40px;
+    width: 380px;
+    max-width: 90vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  .login-card h1 {
+    color: #fff;
+    font-size: 28px;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .login-card .subtitle {
+    color: rgba(255,255,255,0.5);
+    font-size: 14px;
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  .form-group {
+    margin-bottom: 20px;
+  }
+  .form-group label {
+    display: block;
+    color: rgba(255,255,255,0.7);
+    font-size: 13px;
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .form-group input {
+    width: 100%;
+    padding: 12px 16px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    color: #fff;
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .form-group input:focus {
+    border-color: #6c63ff;
+  }
+  .btn {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(135deg, #6c63ff, #4834d4);
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.2s;
+  }
+  .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(108,99,255,0.3);
+  }
+  .btn:active {
+    transform: translateY(0);
+  }
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .error {
+    color: #ff6b6b;
+    font-size: 13px;
+    text-align: center;
+    margin-top: 12px;
+    min-height: 20px;
+  }
+  .icon {
+    text-align: center;
+    font-size: 48px;
+    margin-bottom: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <div class="icon">🔐</div>
+  <h1>Caging</h1>
+  <div class="subtitle">Isolated Environment Manager</div>
+  <form id="loginForm">
+    <div class="form-group">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" placeholder="Enter username" required autofocus>
+    </div>
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="Enter password" required>
+    </div>
+    <button type="submit" class="btn" id="loginBtn">Sign In</button>
+  </form>
+  <div class="error" id="errorMsg"></div>
+</div>
+
+<script src="static/common.js"></script>
+<script>
+(function() {
+  const form = document.getElementById('loginForm');
+  const errorEl = document.getElementById('errorMsg');
+  const btn = document.getElementById('loginBtn');
+
+  form.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    errorEl.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Signing in...';
+
+    const prefix = getPrefix();
+    try {
+      const resp = await fetch(prefix + '/ui/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: document.getElementById('username').value,
+          password: document.getElementById('password').value,
+        }),
+      });
+      const data = await resp.json();
+      if (data.status === 'ok') {
+        // Cookie is set by server — just navigate
+        navigateTo('dashboard');
+      } else {
+        errorEl.textContent = data.detail || data.error || 'Login failed';
+      }
+    } catch (err) {
+      errorEl.textContent = 'Network error: ' + err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+    }
+  });
+})();
+</script>
+</body>
+</html>

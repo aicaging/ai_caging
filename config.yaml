@@ -1,0 +1,48 @@
+service:
+  name: "Caging-Local"
+  host: "0.0.0.0"
+  port: 8180
+  database: "caging.db"
+  log_retention_days: 90
+
+auth:
+  rate_limit:
+    per_minute: 60
+    per_hour: 1000
+  session_secret: "change-me-to-a-random-secret"
+  api_keys:
+    admin:
+      role: "admin"
+      system_user: "caging"
+      key: "ak_live_90c22d1417ccf94943e1a3d24218bfc53e7f42a5cf1f0629436655ab9b81c2c9"
+
+policy:
+  rules_file: "policy.yaml"
+  reload_on_change: true
+
+parent:
+  enabled: false
+  base_url: "https://parent.caging.example.com"
+  api_key: "ak_live_parent_..."
+  timeout: 30
+  poll_interval_seconds: 10
+
+ai:
+  provider: "openai"
+  api_key_env: "OPENAI_API_KEY"
+  model: "gpt-4"
+  fallback: "manual"
+
+notifications:
+  websocket:
+    enabled: true
+    path: "/ws/notifications"
+    heartbeat_interval: 30
+
+review:
+  default_reviewer: "reviewer1"
+  auto_assign_after_seconds: 300
+
+expiration:
+  ttl_hours: 24
+  check_interval_seconds: 60

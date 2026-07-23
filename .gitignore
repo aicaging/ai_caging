@@ -1,0 +1,7 @@
+.secrets
+.test_protect_me
+coding/
+.venv/
+tests/
+plan.yaml
+caging/__pycache__/

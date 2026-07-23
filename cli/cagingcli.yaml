@@ -1,0 +1,20 @@
+# Caging CLI config for cage1 → cadmin
+parent:
+  base_url: "http://localhost:50080"
+  api_key: "ak_live_5309adc6c5cba2e8870ca3258b5b9eb990024414516ecce9ba63b2ec06411753"
+  timeout: 30
+
+defaults:
+  output: text
+
+# Parameters the parent service supports for command execution & operations
+parent_params:
+  timeout: "Execution timeout in seconds (default: 60)"
+  topic: "Topic/label for the request (default: na)"
+  catalog: "Catalog or category for the request"
+  dual_approval: "Whether dual approval is required (true/false)"
+  assigned_reviewer: "Specific reviewer ID for approval"
+  script_source: "Inline script content to execute"
+  env: "Environment variables (KEY=VAL pairs)"
+  path: "File path for protect/release operations"
+  reason: "Reason annotation for release operation"

@@ -1,0 +1,37 @@
+rules:
+  - name: "block destructive commands for non-root"
+    condition: "command in ['rm', 'mkfs', 'dd', 'format'] and system_user != 'root'"
+    action: "escalate"
+    reason: "Requires root privileges"
+
+  - name: "allow safe read-only commands"
+    condition: "base_command in ['echo', 'whoami', 'id', 'pwd', 'ls', 'cat', 'head', 'tail', 'date', 'uptime', 'uname', 'which', 'env', 'printenv', 'hostname', 'df', 'du', 'ps']"
+    action: "allow"
+
+  - name: "allow cleanup for user1"
+    condition: "client_id == 'user1' and catalog == 'cleanup' and command.startswith('rm /data/temp')"
+    action: "allow"
+
+  - name: "auto-approve opendata/police/canada topic"
+    condition: "topic == 'opendata/police/canada'"
+    action: "allow"
+    reason: "Automatically approved by topic policy"
+
+  - name: "auto-approve trusted topic patterns"
+    condition: "topic.startswith('opendata/') or topic.startswith('public/')"
+    action: "allow"
+    reason: "Trusted topic namespace"
+
+  - name: "human review for sensitive topics"
+    condition: "topic in ['finance/report', 'security/audit', 'production/deploy']"
+    action: "require_human"
+    reason: "Sensitive topic requires manual review"
+
+  - name: "dual approval for sensitive catalogs"
+    condition: "catalog in ['finance', 'security', 'production']"
+    dual_approval: true
+    action: "require_human"
+
+  - name: "AI screening for unknown commands"
+    condition: "true"
+    action: "require_human"

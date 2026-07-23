@@ -1,0 +1,61 @@
+# plan.yaml — Caging deployment plan (generated from plan.cfg)
+# Each user section includes AI configurations and key/value parameters.
+
+# ─── Global AI Configuration ──────────────────────────────
+ai:
+  provider: openai
+  api_key: your-ai-key
+  model: deepseek-reasoner
+  base_url: https://api.deepseek.com
+  fallback: manual
+
+# ─── Users / Sections ─────────────────────────────────────
+users:
+
+  root:
+    mode: service
+    port: 58000
+    parent:
+      user: null
+    children:
+      - cadmin
+    human_login:
+      username: root
+      password: changeit!
+    ai:
+      provider: openai
+      api_key: your-ai-key
+      model: deepseek-reasoner
+      base_url: https://api.deepseek.com
+      fallback: manual
+    # Key/value parameters
+    params:
+      db_auth: "ca_user:ca_password"
+
+  cadmin:
+    mode: service
+    port: 58001
+    parent:
+      user: root
+      param:
+        db_auth: string in username:password format
+    children:
+      - cage1
+    human_login:
+      username: admin
+      password: changeit!
+    ai:
+      provider: openai
+      api_key: your-ai-key
+      model: deepseek-reasoner
+      base_url: https://api.deepseek.com
+      fallback: manual
+    params:
+      db_auth: "user_with_delete_permission:password"
+
+  cage1:
+    mode: cage
+    parent:
+      user: cadmin
+      param:
+        db_auth: string in username:password format
