@@ -99,6 +99,7 @@ pip install -r requirements.txt
 # 2. Configure your topology
 cp plan.yaml.sample plan.yaml
 vim plan.yaml
+** Setup AI API key , parent hosting params **
 
 # 3. Deploy
 sudo ./init.sh
@@ -131,19 +132,28 @@ The recommended way to deploy a full topology. Define all layers in `plan.yaml` 
 sudo ./init.sh
 ```
 
-### Nginx Portal Setup Sample with plan.yaml
+Services run directly on localhost — no nginx needed:
 
-Deploy an nginx reverse proxy in front of all services:
+| Service | URL |
+|---------|-----|
+| root    | `http://localhost:58000/ui/login` |
+| cadmin  | `http://localhost:58001/ui/login` |
+
+On a remote host, replace `localhost` with the host IP/domain.
+
+### Nginx Portal + SSL (optional)
+
+Optionally deploy an nginx reverse proxy to unify access on a single port with path-based routing:
 
 ```bash
 sudo ./init.sh -nginx [--portal-port 50080]
 ```
-
-This creates `/etc/nginx/sites-enabled/caging-portal` and configures:
-- `http://<host>:50080/root/` → root service
-- `http://<host>:50080/cadmin/` → cadmin service
+This creates `/etc/nginx/sites-available/caging` (symlinked from `sites-enabled/caging`) with:
+- `http://<host>:50080/root/` → root service (port 58000)
+- `http://<host>:50080/cadmin/` → cadmin service (port 58001)
 - Cookie path isolation to prevent session collisions
-
+- WebSocket upgrade support for real-time dashboard
+** Adding SSL yourself with nginx **
 
 ## CLI Usage and Example
 
