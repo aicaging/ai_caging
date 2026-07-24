@@ -75,34 +75,43 @@ function renderCards() {
     panel.innerHTML = '<div class="empty-state"><div class="icon">📋</div><h3>No requests</h3><p>Requests will appear here when submitted.</p></div>';
     return;
   }
-  panel.innerHTML = allRequests.map(r => {
-    const activeCls = r.id === activeRequestId ? ' active' : '';
-    const statusCls = 'status-' + (r.status || 'pending');
-    const typeCls = 'type-' + (r.type || 'command');
-    const riskCls = r.risk_score > 7 ? 'risk-high' : r.risk_score > 3 ? 'risk-medium' : 'risk-low';
-    const scriptContent = getScriptContent(r);
-    const age = r.created_at ? timeAgo(r.created_at) : '';
-    return '<div class="request-card' + activeCls + '" data-id="' + escapeHtml(r.id) + '">' +
-      '<div class="card-titlebar">' +
-        '<span class="card-type ' + typeCls + '">' + escapeHtml(r.type || '?') + '</span>' +
-        '<span class="win-title">' + escapeHtml(r.topic || 'Untitled') + '</span>' +
-        '<span class="win-id">#' + escapeHtml((r.id || '').substring(0, 18)) + '</span>' +
-        '<span class="win-dot min" title="Minimize">🗕</span>' +
-        '<span class="win-dot max" title="Maximize">🗖</span>' +
-        '<label class="deselect-cb" title="Select/Deselect"><input type="checkbox"' + (r.id === activeRequestId ? ' checked' : '') + '></label>' +
-      '</div>' +
-      '<div class="card-body">' +
-        '<div class="card-meta">' +
-          '<span><span class="status-dot ' + statusCls + '"></span>' + escapeHtml(r.status || 'pending') + '</span>' +
-          (r.risk_score != null ? '<span class="' + riskCls + '">Risk: ' + r.risk_score + '</span>' : '') +
-          '<span>' + escapeHtml(r.requester_id || '') + '</span>' +
-          (age ? '<span>' + age + '</span>' : '') +
-        '</div>' +
-        (scriptContent ? '<pre class="card-script">' + escapeHtml(scriptContent) + '</pre>' : '') +
-        '<div class="card-audit"></div>' +
-      '</div>' +
-    '</div>';
-  }).join('');
+  const cardsHtml = [];
+  allRequests.forEach(r => {
+    try {
+      const activeCls = r.id === activeRequestId ? ' active' : '';
+      const statusCls = 'status-' + (r.status || 'pending');
+      const typeCls = 'type-' + (r.type || 'command');
+      const riskScore = r.risk_score != null ? Number(r.risk_score) : 0;
+      const riskCls = riskScore > 7 ? 'risk-high' : riskScore > 3 ? 'risk-medium' : 'risk-low';
+      const scriptContent = getScriptContent(r);
+      const age = r.created_at ? timeAgo(r.created_at) : '';
+      cardsHtml.push(
+        '<div class="request-card' + activeCls + '" data-id="' + escapeHtml(r.id) + '">' +
+          '<div class="card-titlebar">' +
+            '<span class="card-type ' + typeCls + '">' + escapeHtml(r.type || '?') + '</span>' +
+            '<span class="win-title"><span class="title-status ' + statusCls + '">' + escapeHtml(r.status || 'pending') + '</span>' + escapeHtml(r.topic || 'Untitled') + '</span>' +
+            '<span class="win-id">#' + escapeHtml((r.id || '').substring(0, 18)) + '</span>' +
+            '<span class="win-dot min" title="Minimize">🗕</span>' +
+            '<span class="win-dot max" title="Maximize">🗖</span>' +
+            '<label class="deselect-cb" title="Select/Deselect"><input type="checkbox"' + (r.id === activeRequestId ? ' checked' : '') + '></label>' +
+          '</div>' +
+          '<div class="card-body">' +
+            '<div class="card-meta">' +
+              '<span><span class="status-dot ' + statusCls + '"></span>' + escapeHtml(r.status || 'pending') + '</span>' +
+              (r.risk_score != null ? '<span class="' + riskCls + '">Risk: ' + r.risk_score + '</span>' : '') +
+              '<span>' + escapeHtml(r.requester_id || '') + '</span>' +
+              (age ? '<span>' + age + '</span>' : '') +
+            '</div>' +
+            (scriptContent ? '<pre class="card-script">' + escapeHtml(scriptContent) + '</pre>' : '') +
+            '<div class="card-audit"></div>' +
+          '</div>' +
+        '</div>'
+      );
+    } catch (e) {
+      console.warn('Failed to render card for request', r.id, e);
+    }
+  });
+  panel.innerHTML = cardsHtml.join('');
 
   // Click handlers
   panel.querySelectorAll('.request-card').forEach(card => {
@@ -113,65 +122,86 @@ function renderCards() {
       renderCards();
     });
     // min dot → minimize (collapse)
-    card.querySelector('.win-dot.min').addEventListener('click', (e) => {
-      e.stopPropagation();
-      card.classList.remove('maximized');
-      card.classList.toggle('minimized');
-    });
-    // max dot → maximize (expand, fetch audit)
-    card.querySelector('.win-dot.max').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      card.classList.remove('minimized');
-      const wasMaximized = card.classList.contains('maximized');
-      if (wasMaximized) {
+    const minDot = card.querySelector('.win-dot.min');
+    if (minDot) {
+      minDot.addEventListener('click', (e) => {
+        e.stopPropagation();
         card.classList.remove('maximized');
-        return;
-      }
-      card.classList.add('maximized');
-      // Fetch audit history if not yet loaded
-      const auditEl = card.querySelector('.card-audit');
-      if (auditEl && !auditEl.dataset.loaded) {
-        auditEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-        try {
-          const detail = await apiCall('get_request_detail', { request_id: rid });
-          const audit = detail.audit || [];
-          if (audit.length === 0) {
-            auditEl.innerHTML = '<div class="audit-empty">No audit entries</div>';
-          } else {
-            auditEl.innerHTML = '<div class="audit-header">📋 Audit History</div>' +
-              audit.map(a => '<div class="audit-item">' +
-                '<span class="audit-action">' + escapeHtml(a.action || '') + '</span>' +
-                '<span class="audit-actor">' + escapeHtml(a.actor_id || '') + '</span>' +
-                (a.detail ? '<span class="audit-detail">' + escapeHtml(a.detail) + '</span>' : '') +
-                (a.created_at ? '<span class="audit-time">' + timeAgo(a.created_at) + '</span>' : '') +
-              '</div>').join('');
-          }
-          auditEl.dataset.loaded = '1';
-        } catch (err) {
-          auditEl.innerHTML = '<div class="audit-error">Failed to load audit: ' + escapeHtml(err.message) + '</div>';
+        card.classList.toggle('minimized');
+      });
+    }
+    // max dot → maximize (expand, fetch audit)
+    const maxDot = card.querySelector('.win-dot.max');
+    if (maxDot) {
+      maxDot.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        card.classList.remove('minimized');
+        const wasMaximized = card.classList.contains('maximized');
+        if (wasMaximized) {
+          card.classList.remove('maximized');
+          return;
         }
-      }
-    });
+        card.classList.add('maximized');
+        // Fetch audit history if not yet loaded
+        const auditEl = card.querySelector('.card-audit');
+        if (auditEl && !auditEl.dataset.loaded) {
+          auditEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+          try {
+            const detail = await apiCall('get_request_detail', { request_id: rid });
+            const audit = detail.audit || [];
+            if (audit.length === 0) {
+              auditEl.innerHTML = '<div class="audit-empty">No audit entries</div>';
+            } else {
+              auditEl.innerHTML = '<div class="audit-header">📋 Audit History</div>' +
+                audit.map(a => '<div class="audit-item">' +
+                  '<span class="audit-action">' + escapeHtml(a.action || '') + '</span>' +
+                  '<span class="audit-actor">' + escapeHtml(a.actor_id || '') + '</span>' +
+                  (a.detail ? '<span class="audit-detail">' + escapeHtml(a.detail) + '</span>' : '') +
+                  (a.created_at ? '<span class="audit-time">' + timeAgo(a.created_at) + '</span>' : '') +
+                '</div>').join('');
+            }
+            auditEl.dataset.loaded = '1';
+          } catch (err) {
+            auditEl.innerHTML = '<div class="audit-error">Failed to load audit: ' + escapeHtml(err.message) + '</div>';
+          }
+        }
+      });
+    }
     // deselect checkbox → toggle selection
-    card.querySelector('.deselect-cb input').addEventListener('change', (e) => {
-      e.stopPropagation();
-      if (e.target.checked) {
-        activeRequestId = rid;
-      } else {
-        if (activeRequestId === rid) { activeRequestId = null; }
-      }
-      renderCards();
-    });
+    const cb = card.querySelector('.deselect-cb input');
+    if (cb) {
+      cb.addEventListener('change', (e) => {
+        e.stopPropagation();
+        if (e.target.checked) {
+          activeRequestId = rid;
+        } else {
+          if (activeRequestId === rid) { activeRequestId = null; }
+        }
+        renderCards();
+      });
+    }
   });
 }
 
 function getScriptContent(r) {
-  const p = r.payload;
-  if (!p) return '';
-  if (typeof p === 'string') {
-    try { return JSON.parse(p).script_source || JSON.parse(p).command || ''; } catch(_) { return p.substring(0, 2000); }
+  try {
+    const p = r && r.payload;
+    if (p == null) return '';
+    if (typeof p === 'string') {
+      try {
+        const j = JSON.parse(p);
+        return j.script_source || j.command || p.substring(0, 2000);
+      } catch(_) {
+        return p.substring(0, 2000);
+      }
+    }
+    if (typeof p === 'object') {
+      return String(p.script_source || p.command || '');
+    }
+    return String(p).substring(0, 2000);
+  } catch(e) {
+    return '';
   }
-  return p.script_source || p.command || '';
 }
 
 function timeAgo(ts) {

@@ -13,12 +13,18 @@ from . import database as db
 
 
 class PolicyEngine:
-    """Evaluates policy rules from the database."""
+    """Evaluates policy rules from the database.
 
-    def __init__(self, rules_file: str = None):
+    Supports actions: allow, require_human, escalate, deny, ai, ai_screen.
+    ``ai_screen`` delegates to AIScreener which returns a decision mapped to
+    allow/deny/require_human.
+    """
+
+    def __init__(self, rules_file: str = None, ai_screener=None):
         """Init from DB. If ``rules_file`` is given, may also auto-seed."""
         self._rules = []
         self._seed_file = rules_file
+        self._ai_screener = ai_screener
         self.reload()
 
     def reload(self):
@@ -38,6 +44,64 @@ class PolicyEngine:
         return self._rules
 
     def evaluate(
+            self, payload: dict, client_id: str = "",
+            system_user: str = "", request_id: str = "",
+        ) -> dict:
+        """Evaluate payload, resolving ``ai_screen`` via AIScreener.
+
+        Returns a dict with the final resolved action:
+            {"action": "allow"|"require_human"|"escalate"|"deny"|"ai",
+             "rule_name": "...", "reason": "...", "dual_approval": bool,
+             "rule_action": "..."}   # original rule action before resolution
+        """
+        result = self.evaluate_rules(payload, client_id, system_user)
+        rule_action = result["action"]
+
+        if rule_action == "ai_screen" and self._ai_screener:
+            screen_result = self._ai_screener.screen(payload)
+            decision = screen_result.get("decision", "manual")
+            explanation = screen_result.get("explanation", "")
+            risk_score = screen_result.get("risk_score", 50)
+
+            # Write audit log for AI screening result
+            if request_id:
+                import json as _json
+                try:
+                    db._audit(request_id, "ai_screener", "ai_screen_result",
+                              _json.dumps({"decision": decision, "explanation": explanation,
+                                           "risk_score": risk_score}))
+                except Exception:
+                    pass
+
+            # Map AIScreener decision to policy action
+            action_map = {
+                "allow": "allow",
+                "deny": "deny",
+                "manual": "require_human",
+            }
+            resolved = action_map.get(decision, "require_human")
+
+            result.update({
+                "action": resolved,
+                "reason": f"AI screened: {explanation} (risk={risk_score})",
+                "rule_action": rule_action,
+                "ai_decision": decision,
+                "ai_risk_score": risk_score,
+                "ai_explanation": explanation,
+            })
+        elif rule_action == "ai_screen":
+            # No screener configured — fall back to require_human
+            result.update({
+                "action": "require_human",
+                "reason": "AI screening unavailable — requires human review",
+                "rule_action": rule_action,
+            })
+        else:
+            result["rule_action"] = rule_action
+
+        return result
+
+    def evaluate_rules(
         self, payload: dict, client_id: str = "",
         system_user: str = "",
     ) -> dict:

@@ -185,7 +185,7 @@ class WebFacade:
             return {"request_id": req["id"], "status": "awaiting_review"}
 
         policy_result = self._policy_engine.evaluate(
-            payload, user["id"], user.get("system_user", ""),
+            payload, user["id"], user.get("system_user", ""), request_id=req["id"],
         )
         self._db.update_request(
             req["id"], policy_result=json.dumps(policy_result),
@@ -206,6 +206,11 @@ class WebFacade:
                     "reason": policy_result["reason"]}
 
         if action == "allow":
+            # If AI screened and approved, skip topic auto-approve check
+            if policy_result.get("rule_action") == "ai_screen":
+                return await self._executor.execute_and_update(
+                    req["id"], command, script_source, timeout, env,
+                )
             # Also check if topic is in the auto-approve list
             if not self._db.is_topic_auto_approved(topic):
                 self._db.update_request(
@@ -348,7 +353,7 @@ class WebFacade:
             return {"request_id": req["id"], "status": "awaiting_review"}
 
         policy_result = self._policy_engine.evaluate(
-            payload, user["id"], user.get("system_user", ""),
+            payload, user["id"], user.get("system_user", ""), request_id=req["id"],
         )
         self._db.update_request(
             req["id"], policy_result=json.dumps(policy_result),
@@ -413,7 +418,7 @@ class WebFacade:
             payload = dict(req.get("payload", {}))
             payload["topic"] = topic
             policy_result = self._policy_engine.evaluate(
-                payload, user["id"], user.get("system_user", ""),
+                payload, user["id"], user.get("system_user", ""), request_id=request_id,
             )
             if policy_result["action"] == "allow":
                 self._db._audit(request_id, "system", "topic_auto_approved",
@@ -687,6 +692,52 @@ class WebFacade:
 
         audit = self._db.get_audit_log(request_id)
         return {"req": req, "audit": audit, "client_id": client_id}
+
+    def get_policy_for_request(
+        self, session_token: str, request_id: str,
+    ) -> dict:
+        """Get the policy rule matching a given request, plus all rules for UI.
+
+        Returns matched_rule, all_rules, and request_info so the frontend
+        can populate a policy edit/create dialog.
+        """
+        client_id = self._verify_ui_session(session_token)
+
+        req = self._db.get_request(request_id)
+        if not req:
+            raise ValueError("Request not found")
+
+        # Parse payload
+        payload = req.get("payload")
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except json.JSONDecodeError:
+                payload = {}
+
+        # Evaluate policy to find matching rule (raw rules only — no AI screening)
+        user = self._db.get_user(client_id)
+        policy_result = self._policy_engine.evaluate_rules(
+            payload, client_id, user.get("system_user", ""),
+        )
+
+        # Gather all rules (for the dialog dropdown)
+        all_rules = self._db.list_policy_rules()
+
+        # Build request_info for pre-filling form
+        request_info = {
+            "request_id": request_id,
+            "command": payload.get("command", "") if isinstance(payload, dict) else "",
+            "topic": payload.get("topic", "") if isinstance(payload, dict) else "",
+            "base_command": (payload.get("command", "").split()[0]
+                             if isinstance(payload, dict) and payload.get("command") else ""),
+        }
+
+        return {
+            "matched_rule": policy_result,
+            "all_rules": all_rules,
+            "request_info": request_info,
+        }
 
     # ── Auto-Approve Topic management ─────────────────────────────────
 

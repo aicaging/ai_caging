@@ -118,7 +118,7 @@ def init_db(db_path: str):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             condition TEXT NOT NULL DEFAULT 'true',
-            action TEXT NOT NULL CHECK(action IN ('allow','require_human','escalate','deny','ai')),
+            action TEXT NOT NULL CHECK(action IN ('allow','require_human','escalate','deny','ai','ai_screen')),
             reason TEXT DEFAULT '',
             dual_approval BOOLEAN DEFAULT 0,
             priority INTEGER DEFAULT 100,
@@ -146,6 +146,42 @@ def init_db(db_path: str):
         conn.execute("ALTER TABLE policy_rules ADD COLUMN enabled BOOLEAN DEFAULT 1")
     except sqlite3.OperationalError:
         pass
+
+    # Migration: add ai_screen to CHECK constraint (rebuild table)
+    try:
+        # Test if ai_screen is valid by trying to insert-and-rollback
+        conn.execute("SAVEPOINT _ck_migration")
+        conn.execute("INSERT INTO policy_rules(name,condition,action) VALUES('_migration_test','false','ai_screen')")
+        conn.execute("ROLLBACK TO _ck_migration")
+        conn.execute("RELEASE _ck_migration")
+    except (sqlite3.OperationalError, sqlite3.IntegrityError):
+        # ai_screen not yet allowed — rebuild table
+        try:
+            conn.execute("ROLLBACK TO _ck_migration")
+        except Exception:
+            pass
+        try:
+            conn.execute("RELEASE _ck_migration")
+        except Exception:
+            pass
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS policy_rules_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                condition TEXT NOT NULL DEFAULT 'true',
+                action TEXT NOT NULL CHECK(action IN ('allow','require_human','escalate','deny','ai','ai_screen')),
+                reason TEXT DEFAULT '',
+                dual_approval BOOLEAN DEFAULT 0,
+                priority INTEGER DEFAULT 100,
+                enabled BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP
+            );
+            INSERT INTO policy_rules_new SELECT * FROM policy_rules;
+            DROP TABLE policy_rules;
+            ALTER TABLE policy_rules_new RENAME TO policy_rules;
+        """)
+        conn.commit()
 
     # Migration: add original_mode to protections table for existing DBs
     try:
@@ -400,7 +436,9 @@ def _audit(request_id: str, actor: str, action: str, details: str = ""):
 def get_audit_log(request_id: str) -> list:
     conn = get_connection()
     rows = conn.execute(
-        "SELECT * FROM audit_log WHERE request_id = ? ORDER BY timestamp", (request_id,)
+        "SELECT id, request_id, actor AS actor_id, action, details AS detail, "
+        "timestamp AS created_at FROM audit_log WHERE request_id = ? "
+        "ORDER BY timestamp", (request_id,)
     ).fetchall()
     return [dict(r) for r in rows]
 

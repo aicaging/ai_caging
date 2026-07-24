@@ -88,6 +88,96 @@ Client submits request (CLI/API)
 
 ---
 
+## Policy Rules
+
+Policy rules control how each request is handled. Rules are evaluated in **priority order** — the first matching rule wins.
+
+### Rule Structure
+
+Rules are stored in the database (`policy_rules` table) and seeded from `policy.yaml`:
+
+```yaml
+rules:
+  - name: "rule name"
+    condition: "python expression"   # evaluated against request context
+    action: "allow|deny|escalate|require_human|ai|ai_screen"
+    reason: "displayed to user"
+    dual_approval: false              # optional — requires two approvers
+```
+
+### Available Actions
+
+| Action | Behavior |
+|--------|----------|
+| `allow` | Execute immediately without review |
+| `deny` | Reject the request outright |
+| `escalate` | Forward to parent layer for authorization |
+| `require_human` | Queue for manual review in the dashboard |
+| `ai_screen` | **AI auto-screening** — AI evaluates risk and returns `allow`/`deny`/`manual` |
+
+### `ai_screen` — AI Auto-Screening
+
+When a rule's action is `ai_screen`, the request is sent to an AI model for automatic risk assessment. The AI analyzes the command, path, catalog, and context, then returns:
+
+- **`allow`** → executed immediately (AI deems it safe, risk_score < 40)
+- **`deny`** → rejected (AI deems it dangerous, risk_score > 70)
+- **`manual`** → falls back to human review (risk_score 40–70, or AI unavailable)
+
+The AI screener prompt instructs the model to act as a security screening AI. If the AI API is unreachable, the fallback is `manual` (human review). Configuration comes from `plan.yaml` under each layer's `ai:` section.
+
+### Condition Expressions
+
+Conditions are Python expressions evaluated in a sandbox. Available context variables:
+
+| Variable | Type | Example |
+|----------|------|---------|
+| `command` | str | `"rm -rf /tmp/test"` |
+| `base_command` | str | `"rm"` (first word of command) |
+| `topic` | str | `"db/maintain"` |
+| `catalog` | str | `"cleanup"` |
+| `client_id` | str | `"cage1"` |
+| `system_user` | str | `"cagent"` |
+| `payload` | dict | full request payload |
+
+Use `re.match()`, `re.search()` for regex; `.startswith()`, `.endswith()`, `in` for string matching.
+
+### Example Rules
+
+```yaml
+# Block destructive commands — escalate to parent
+- name: "block destructive"
+  condition: "base_command in ['rm', 'mkfs', 'dd', 'format'] and system_user != 'root'"
+  action: "escalate"
+
+# Auto-approve safe read-only commands
+- name: "safe read-only"
+  condition: "base_command in ['echo', 'whoami', 'ls', 'cat', 'head', 'date', 'ps']"
+  action: "allow"
+
+# Auto-approve trusted topic patterns
+- name: "trusted topics"
+  condition: "topic.startswith('opendata/') or topic == 'read'"
+  action: "allow"
+
+# Human review for sensitive topics
+- name: "sensitive topics"
+  condition: "topic in ['finance/report', 'security/audit', 'production/deploy']"
+  action: "require_human"
+
+# AI screening for everything else
+- name: "ai fallback"
+  condition: "true"
+  action: "ai_screen"
+
+# Dual approval for production
+- name: "production dual"
+  condition: "catalog == 'production'"
+  action: "require_human"
+  dual_approval: true
+```
+
+> **Tip**: The last catch-all rule with `condition: "true"` and `action: "ai_screen"` ensures every request not matched by earlier rules gets AI screening instead of blocking the pipeline.
+
 ## Quick Start
 
 ```bash
@@ -191,6 +281,32 @@ protect.sh [-t topic] <path>
 release.sh [-t topic] [--reason "..."] <path>
 ```
 
+### `firewallcli.sh` — Manage outbound firewall for cage users
+
+```
+firewallcli.sh enable  <user> [IP/domain/CIDR...]   # block all outbound except whitelist
+firewallcli.sh disable <user>                        # remove all firewall rules
+firewallcli.sh add     <user> <IP/domain/CIDR...>   # append to whitelist
+firewallcli.sh list    <user>                        # show current whitelist
+```
+
+Whitelist entries support IPv4, CIDR networks, and domain names (resolved to IPv4 at apply time). Backed by `iptables` owner-match rules.
+
+Examples:
+```bash
+# Restrict cage1 to only access DeepSeek API
+firewallcli.sh enable cage1 api.deepseek.com
+
+# Add GitHub to the whitelist
+firewallcli.sh add cage1 github.com
+
+# Remove all restrictions
+firewallcli.sh disable cage1
+
+# View current whitelist
+firewallcli.sh list cage1
+```
+
 
 ## Human review Usage and Example
 
@@ -214,6 +330,7 @@ Several examples:
 | `>r` or `>reject` | Reject the request |
 | `?h` or `?help` | List all built-in commands |
 | `?r` or `?risk` | Ask AI for risk analysis |
+| `?p` or `?policy` | Add/Edit policy rule |
 
 Any input without a built-in command prefix is treated as a chat message and sent to the AI for reasoning on current request.
 
@@ -248,6 +365,9 @@ Configure or prompt your AI agent to invoke these shell scripts as external tool
 | Execute privileged command | `exec.sh -t <topic> <cmd>` | Uses `{{params.*}}` for parent credentials |
 | Lock a file | `protect.sh <path>` | Only root can `chattr +i`; always escalates |
 | Unlock a file | `release.sh <path>` | Always escalates to parent for approval |
+| Enable outbound firewall | `firewallcli.sh enable <user> <items>` | Block all outbound except whitelist |
+| Disable firewall | `firewallcli.sh disable <user>` | Remove all iptables rules for user |
+| Add to whitelist | `firewallcli.sh add <user> <items>` | Append IP/domain/CIDR to whitelist |
 
 ### Example: AI agent running in cage1
 
@@ -267,6 +387,10 @@ protect.sh /etc/myapp/config.yaml
 
 # 5. Later, needs to update — requests release:
 release.sh --reason "Quarterly config update" /etc/myapp/config.yaml
+
+# 6. If the cage needs network restrictions (e.g. restrict to API endpoints only):
+firewallcli.sh enable cage1 api.deepseek.com
+firewallcli.sh add cage1 github.com
 ```
 
 > **Key insight**: The AI agent itself has zero privileged access. All dangerous operations flow through the caging authorization chain — policy rules, AI risk screening, and human review — before execution.

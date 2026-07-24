@@ -59,3 +59,7 @@ users:
       user: cadmin
       param:
         db_auth: string in username:password format
+    reverse_firewall:
+      enable: true
+      whitelist:
+        - api.deepseek.com

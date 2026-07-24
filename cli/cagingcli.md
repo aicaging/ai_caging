@@ -112,6 +112,37 @@ cagingcli.py release /app/data/db.sqlite --reason "update"
 
 ---
 
+### `firewallcli.sh` — Reverse Firewall Management
+
+Wrapper around `reverse_firewall.sh` via `exec.sh`. Manages per-user outbound traffic restrictions using iptables.
+
+```bash
+firewallcli.sh enable  <user> [IP/domain/CIDR...]
+firewallcli.sh disable <user>
+firewallcli.sh add     <user> <IP/domain/CIDR...>
+firewallcli.sh list    <user>
+```
+
+| Subcommand | Description |
+|------------|-------------|
+| `enable`   | Activate firewall with whitelist (block all other outbound) |
+| `disable`  | Remove all firewall rules for the user |
+| `add`      | Append entries to the whitelist and re-apply |
+| `list`     | Display the current whitelist |
+
+Whitelist supports: IPv4 address, CIDR network, domain name (resolved at apply time).
+
+Examples:
+
+```bash
+firewallcli.sh enable cage1 api.deepseek.com
+firewallcli.sh add cage1 github.com
+firewallcli.sh list cage1
+firewallcli.sh disable cage1
+```
+
+---
+
 ### `status` — Check Request Status
 
 ```bash

@@ -146,6 +146,7 @@ class Chat {
         '• `?help` / `?h` — Show this help\n' +
         '• `?risk` / `?r` — AI risk analysis for active request\n' +
         '• `?detail` / `?d` — Show active request details\n' +
+        '• `?p` / `?policy` — Open policy rule editor for active request\n' +
         '• `?[status]` — Filter by status (e.g. `?awaiting_review`)\n\n' +
         '**> Actions**\n' +
         '• `>approve` / `>a` — Approve active request\n' +
@@ -198,6 +199,14 @@ class Chat {
       } catch (e) {
         this.addSystemMsg('❌ Detail fetch failed: ' + e.message);
       }
+      return;
+    }
+
+    // ?p / ?policy — open policy rule editor for current request
+    if (cmd === 'p' || cmd === 'policy') {
+      const id = this._getActiveId();
+      if (!id) { this.addSystemMsg('❌ No active request selected. Click a request card first.'); return; }
+      await this._showPolicyDialog(id);
       return;
     }
 
@@ -307,6 +316,244 @@ class Chat {
 
     // Unknown > command
     this.addSystemMsg('❌ Unknown action: `' + msg + '`. Type `?help` for available commands.');
+  }
+
+  // ═══ Policy Dialog ══════════════════════════════════════════════
+
+  async _showPolicyDialog(requestId) {
+    this.addSystemMsg('📋 Loading policy for ' + requestId + '...');
+
+    let data;
+    try {
+      data = await this._apiCall('get_policy_for_request', { request_id: requestId });
+    } catch (e) {
+      this.addSystemMsg('❌ Failed to load policy: ' + e.message);
+      return;
+    }
+
+    const { matched_rule, all_rules, request_info } = data;
+    const self = this;
+
+    // Remove any existing dialog
+    const existing = document.getElementById('policyDialogOverlay');
+    if (existing) existing.remove();
+
+    // Build overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'policyDialogOverlay';
+    overlay.className = 'policy-dialog-overlay';
+    overlay.innerHTML = this._buildPolicyDialogHTML(matched_rule, all_rules, request_info);
+
+    document.body.appendChild(overlay);
+
+    // Cleanup helper — remove overlay + unbind ESC
+    const cleanup = () => {
+      overlay.remove();
+      document.removeEventListener('keydown', escHandler);
+    };
+
+    // Close on overlay click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) cleanup();
+    });
+
+    // Close on Esc
+    const escHandler = (e) => { if (e.key === 'Escape') cleanup(); };
+    document.addEventListener('keydown', escHandler);
+
+    // Close buttons (✕ and Cancel)
+    overlay.querySelectorAll('.policy-dialog-close').forEach(el => el.addEventListener('click', cleanup));
+
+    // Rule selector change → populate form + toggle buttons
+    const footer = overlay.querySelector('.policy-dialog-footer');
+    const ruleSelect = overlay.querySelector('#policyRuleSelect');
+    if (ruleSelect) {
+      const toggleButtons = () => {
+        if (ruleSelect.value === '') {
+          footer.classList.remove('has-rule');
+        } else {
+          footer.classList.add('has-rule');
+        }
+      };
+      ruleSelect.addEventListener('change', () => {
+        const idx = ruleSelect.value;
+        if (idx === '') {
+          // Clear form for new rule
+          self._resetPolicyForm(overlay, request_info);
+        } else {
+          const rule = all_rules[parseInt(idx)];
+          if (rule) self._populatePolicyForm(overlay, rule);
+        }
+        toggleButtons();
+      });
+      // Trigger change to populate with matched/default + set initial button state
+      ruleSelect.dispatchEvent(new Event('change'));
+    }
+
+    // Save (Update) button
+    overlay.querySelector('#policyBtnUpdate').addEventListener('click', async () => {
+      const form = self._readPolicyForm(overlay);
+      const selIdx = ruleSelect.value;
+      if (selIdx === '') {
+        self.addSystemMsg('❌ Select an existing rule to update, or use "Add as New".');
+        return;
+      }
+      const rule = all_rules[parseInt(selIdx)];
+      if (!rule) return;
+      try {
+        await self._apiCall('update_policy', { rule_id: rule.id, ...form });
+        self.addSystemMsg('✅ Policy rule #' + rule.id + ' updated.');
+        cleanup();
+      } catch (e) {
+        self.addSystemMsg('❌ Update failed: ' + e.message);
+      }
+    });
+
+    // Delete button
+    overlay.querySelector('#policyBtnDelete').addEventListener('click', async () => {
+      const selIdx = ruleSelect.value;
+      if (selIdx === '') return;
+      const rule = all_rules[parseInt(selIdx)];
+      if (!rule) return;
+      if (!confirm('Delete policy rule "' + rule.name + '" (# ' + rule.id + ')? This cannot be undone.')) return;
+      try {
+        await self._apiCall('delete_policy', { rule_id: rule.id });
+        self.addSystemMsg('🗑 Policy rule #' + rule.id + ' deleted.');
+        cleanup();
+      } catch (e) {
+        self.addSystemMsg('❌ Delete failed: ' + e.message);
+      }
+    });
+
+    // Add as New button
+    overlay.querySelector('#policyBtnAdd').addEventListener('click', async () => {
+      const form = self._readPolicyForm(overlay);
+      if (!form.name.trim()) {
+        self.addSystemMsg('❌ Rule name is required.');
+        return;
+      }
+      try {
+        const result = await self._apiCall('add_policy', form);
+        self.addSystemMsg('✅ New policy rule created: #' + (result.rule?.id || '?'));
+        cleanup();
+      } catch (e) {
+        self.addSystemMsg('❌ Add failed: ' + e.message);
+      }
+    });
+  }
+
+  _buildPolicyDialogHTML(matched_rule, all_rules, request_info) {
+    const cmd = request_info.command || request_info.base_command || '(none)';
+    const topic = request_info.topic || '(none)';
+    const matchedName = matched_rule.rule_name || 'default';
+
+    let ruleOptions = '<option value="">-- New Rule (based on request) --</option>';
+    let matchedIdx = '';
+    (all_rules || []).forEach((r, i) => {
+      const sel = r.name === matchedName ? ' selected' : '';
+      if (r.name === matchedName) matchedIdx = String(i);
+      ruleOptions += '<option value="' + i + '"' + sel + '>' + this._escapeHtml(r.name) + ' (action: ' + this._escapeHtml(r.action) + ', pri: ' + (r.priority ?? 100) + ')</option>';
+    });
+
+    // Determine if we have a matched real rule (not "default")
+    const hasMatch = matched_rule && matched_rule.action !== undefined && matchedName !== 'default';
+    const footerClass = hasMatch ? ' has-rule' : '';
+
+    return '' +
+      '<div class="policy-dialog">' +
+        '<div class="policy-dialog-header">' +
+          '<h3>📜 Policy Rule Editor</h3>' +
+          '<button class="policy-dialog-close" title="Close">✕</button>' +
+        '</div>' +
+        '<div class="policy-dialog-body">' +
+          '<div class="policy-info-bar">' +
+            '<span><strong>Request:</strong> <code>' + this._escapeHtml(cmd) + '</code></span>' +
+            '<span><strong>Topic:</strong> <code>' + this._escapeHtml(topic) + '</code></span>' +
+            '<span><strong>Matched:</strong> <em>' + this._escapeHtml(matchedName) + ' → ' + this._escapeHtml(matched_rule.action || '?') + '</em></span>' +
+          '</div>' +
+          '<div class="policy-form-group">' +
+            '<label for="policyRuleSelect">Existing Rule</label>' +
+            '<select id="policyRuleSelect">' + ruleOptions + '</select>' +
+          '</div>' +
+          '<div class="policy-form-group">' +
+            '<label for="policyName">Rule Name *</label>' +
+            '<input type="text" id="policyName" placeholder="e.g. block_rm_for_guests" />' +
+          '</div>' +
+          '<div class="policy-form-row">' +
+            '<div class="policy-form-group" style="flex:2">' +
+              '<label for="policyCondition">Condition (Python expr)</label>' +
+              '<input type="text" id="policyCondition" placeholder="e.g. base_command == \'rm\'" />' +
+            '</div>' +
+            '<div class="policy-form-group" style="flex:1">' +
+              '<label for="policyAction">Action</label>' +
+              '<select id="policyAction">' +
+                '<option value="allow">allow</option>' +
+                '<option value="require_human" selected>require_human</option>' +
+                '<option value="escalate">escalate</option>' +
+                '<option value="deny">deny</option>' +
+                '<option value="ai">ai</option>' +
+                '<option value="ai_screen">ai_screen</option>' +
+              '</select>' +
+            '</div>' +
+          '</div>' +
+          '<div class="policy-form-group">' +
+            '<label for="policyReason">Reason</label>' +
+            '<input type="text" id="policyReason" placeholder="Why this rule exists" />' +
+          '</div>' +
+          '<div class="policy-form-row">' +
+            '<div class="policy-form-group" style="flex:1">' +
+              '<label for="policyPriority">Priority</label>' +
+              '<input type="number" id="policyPriority" value="100" min="1" max="999" />' +
+            '</div>' +
+            '<div class="policy-form-group policy-form-check">' +
+              '<label><input type="checkbox" id="policyDualApproval" /> Dual Approval</label>' +
+            '</div>' +
+            '<div class="policy-form-group policy-form-check">' +
+              '<label><input type="checkbox" id="policyEnabled" checked /> Enabled</label>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="policy-dialog-footer' + footerClass + '">' +
+          '<button class="btn-policy btn-update" id="policyBtnUpdate">💾 Update Rule</button>' +
+          '<button class="btn-policy btn-delete" id="policyBtnDelete">🗑 Delete Rule</button>' +
+          '<button class="btn-policy btn-add" id="policyBtnAdd">➕ Add as New</button>' +
+          '<button class="btn-policy btn-cancel policy-dialog-close">Cancel</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  _populatePolicyForm(overlay, rule) {
+    overlay.querySelector('#policyName').value = rule.name || '';
+    overlay.querySelector('#policyCondition').value = rule.condition || 'true';
+    overlay.querySelector('#policyAction').value = rule.rule_action || rule.action || 'require_human';
+    overlay.querySelector('#policyReason').value = rule.reason || '';
+    overlay.querySelector('#policyPriority').value = rule.priority ?? 100;
+    overlay.querySelector('#policyDualApproval').checked = !!rule.dual_approval;
+    overlay.querySelector('#policyEnabled').checked = rule.enabled !== false;
+  }
+
+  _resetPolicyForm(overlay, request_info) {
+    const cmd = request_info.command || '';
+    const base = request_info.base_command || cmd;
+    overlay.querySelector('#policyName').value = base ? 'rule_for_' + base : '';
+    overlay.querySelector('#policyCondition').value = base ? ("base_command == '" + base.replace(/'/g, "\\'") + "'") : 'true';
+    overlay.querySelector('#policyAction').value = 'require_human';
+    overlay.querySelector('#policyReason').value = '';
+    overlay.querySelector('#policyPriority').value = 100;
+    overlay.querySelector('#policyDualApproval').checked = false;
+    overlay.querySelector('#policyEnabled').checked = true;
+  }
+
+  _readPolicyForm(overlay) {
+    return {
+      name: overlay.querySelector('#policyName').value.trim(),
+      condition: overlay.querySelector('#policyCondition').value.trim() || 'true',
+      action: overlay.querySelector('#policyAction').value,
+      reason: overlay.querySelector('#policyReason').value.trim(),
+      priority: parseInt(overlay.querySelector('#policyPriority').value) || 100,
+      dual_approval: overlay.querySelector('#policyDualApproval').checked,
+      enabled: overlay.querySelector('#policyEnabled').checked,
+    };
   }
 
   // ═══ AI Chat (forward to /chat endpoint) ════════════════════════

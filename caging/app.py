@@ -86,12 +86,6 @@ def load_config(config_path: str = "config.yaml"):
     )
     globals()["rate_limiter"] = rate_limiter
 
-    policy_rules_file = os.environ.get("CAGING_POLICY") or os.path.join(
-        os.path.dirname(config_path),
-        CONFIG.get("policy", {}).get("rules_file", "policy.yaml"),
-    )
-    policy_engine = PolicyEngine(rules_file=policy_rules_file)
-
     ai_screener = AIScreener(
         provider=ai_cfg.get("provider", "openai"),
         api_key=ai_cfg.get("api_key", ""),
@@ -99,6 +93,12 @@ def load_config(config_path: str = "config.yaml"):
         fallback=ai_cfg.get("fallback", "manual"),
         base_url=ai_cfg.get("base_url", ""),
     )
+
+    policy_rules_file = os.environ.get("CAGING_POLICY") or os.path.join(
+        os.path.dirname(config_path),
+        CONFIG.get("policy", {}).get("rules_file", "policy.yaml"),
+    )
+    policy_engine = PolicyEngine(rules_file=policy_rules_file, ai_screener=ai_screener)
 
     # Build the service's own callback base URL for parent escalation callbacks
     svc_port = svc.get("port", 8000)
@@ -550,6 +550,9 @@ async def ui_api(request: Request, user: dict = Depends(verify_session_dependenc
             resp = JSONResponse({"ok": True})
             resp.delete_cookie("cadmin-session-id", path="/")
             return resp
+        elif action == "get_policy_for_request":
+            data = webfacade.get_policy_for_request(session_token, params["request_id"])
+            return {"ok": True, "data": data}
         elif action == "get_current_user":
             return {"ok": True, "data": {"id": user["id"], "role": user["role"]}}
         elif action == "get_dashboard_page":

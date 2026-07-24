@@ -353,7 +353,8 @@ def deploy_cagingcli(data_dir: Path, child_name: str, parent_url: str, api_key: 
         print(f"  WARNING: cagingcli.py not found at {src_cli}, skipping")
 
     # Copy CLI support files (shell scripts, docs)
-    for filename in ("cagingcli.md", "exec.sh", "protect.sh", "release.sh"):
+    for filename in ("cagingcli.md", "exec.sh", "protect.sh", "release.sh",
+                     "firewallcli.sh"):
         src_file = SCRIPT_DIR / "cli" / filename
         if src_file.exists():
             shutil.copy2(str(src_file), str(cli_dir / filename))
@@ -362,6 +363,16 @@ def deploy_cagingcli(data_dir: Path, child_name: str, parent_url: str, api_key: 
             print(f"  {filename} -> {cli_dir / filename}")
         else:
             print(f"  WARNING: {filename} not found at {src_file}, skipping")
+
+    # Copy reverse_firewall.sh from project root
+    rfw_src = SCRIPT_DIR / "reverse_firewall.sh"
+    if rfw_src.exists():
+        shutil.copy2(str(rfw_src), str(cli_dir / "reverse_firewall.sh"))
+        subprocess.run(["chown", f"{owner}:{owner}", str(cli_dir / "reverse_firewall.sh")], check=True)
+        (cli_dir / "reverse_firewall.sh").chmod(0o750)
+        print(f"  reverse_firewall.sh -> {cli_dir / 'reverse_firewall.sh'}")
+    else:
+        print(f"  WARNING: reverse_firewall.sh not found at {rfw_src}, skipping")
 
     # Create cagingcli.yaml
     cli_yaml_path = cli_dir / "cagingcli.yaml"
@@ -460,6 +471,60 @@ def setup_acl(parent_name: str, child_home: Path):
         print(f"  ACL: {parent_name} can access {child_home}")
     except subprocess.CalledProcessError as e:
         print(f"  ACL skipped (setfacl not available?): {e.stderr.decode().strip()}")
+
+
+# ---------------------------------------------------------------------------
+# Reverse firewall
+# ---------------------------------------------------------------------------
+
+def deploy_reverse_firewall(name: str, config: dict):
+    """Apply or remove reverse firewall for cage users (outbound traffic restriction).
+
+    Invokes reverse_firewall.sh with iptables owner-match rules.
+
+    Args:
+        name:   System username of the cage user.
+        config: reverse_firewall section from plan.yaml
+                { enable: bool, whitelist: [str, ...] }
+    """
+    fw_script = SCRIPT_DIR / "reverse_firewall.sh"
+    if not fw_script.exists():
+        print(f"  [WARN] reverse_firewall.sh not found at {fw_script}")
+        return
+
+    enable = config.get("enable", False)
+
+    if enable:
+        # ── Enable firewall with whitelist ──────────────────────────────
+        whitelist = config.get("whitelist", [])
+        if not whitelist:
+            # Default to DeepSeek API domain (the default AI provider)
+            whitelist = ["api.deepseek.com"]
+            print(f"  Reverse firewall: using default whitelist [{', '.join(whitelist)}]")
+
+        cmd = [str(fw_script), "enable", name] + whitelist
+        print(f"  Reverse firewall enable: {name} whitelist={whitelist}")
+        try:
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            print(result.stdout)
+        except subprocess.CalledProcessError as e:
+            print(f"  [ERROR] Reverse firewall enable failed (exit {e.returncode})")
+            if e.stderr:
+                print(f"    stderr: {e.stderr.strip()}")
+            if e.stdout:
+                print(f"    stdout: {e.stdout.strip()}")
+    else:
+        # ── Disable firewall (cleanup existing rules) ───────────────────
+        cmd = [str(fw_script), "disable", name]
+        print(f"  Reverse firewall disable: {name}")
+        try:
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            print(result.stdout)
+        except subprocess.CalledProcessError as e:
+            # disable may fail if no rules exist — non-fatal
+            print(f"  Reverse firewall: already disabled or not configured")
+            if e.stderr:
+                print(f"    stderr: {e.stderr.strip()}")
 
 
 # ---------------------------------------------------------------------------
@@ -585,6 +650,11 @@ def deploy_user(user: dict, all_users: dict):
     #    Ensures database and any runtime-created files are owned by the service user
     subprocess.run(["chown", "-R", f"{owner}:{owner}", str(child_data)], check=True)
     print(f"  Ownership fixed: {child_data} -> {owner}")
+
+    # 10. Reverse firewall (only for cage mode users)
+    if mode == "cage":
+        rfw_config = user.get("reverse_firewall", {})
+        deploy_reverse_firewall(name, rfw_config)
 
     # Summary
     print(f"\n  ✓ {name} deployed successfully")
